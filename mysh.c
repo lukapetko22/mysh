@@ -313,6 +313,15 @@ int renamecom(char* oldpath, char* newpath) {
     return 0;
 }
 
+int removecom(char* target) {
+    if(remove(target) < 0) {
+        int err = errno;
+        printf("remove: %s\n", strerror(err));
+        return err;  
+    }
+    return 0;
+}
+
 
 
 int evaluate(int argc, char** args) {
@@ -480,6 +489,12 @@ int evaluate(int argc, char** args) {
         if(inputc < 3)
             return -1;
         status = renamecom(input[1], input[2]);
+        return status;
+    }
+    else if(strcmp(input[0], "remove") == 0) {
+        if(inputc == 1)
+            return -1;
+        status = removecom(input[1]);
         return status;
     }
 
