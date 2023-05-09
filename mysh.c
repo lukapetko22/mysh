@@ -17,7 +17,7 @@
 /*
     Global vars
 */
-char shellname[100];
+char shellname[100] = { 0 };
 int laststatus = 0;
 
 
@@ -103,7 +103,7 @@ int helpcom(char** output) {
 }
 
 int statuscom(char** output) {
-    char tmp[10];
+    char tmp[10] = { 0 };
     sprintf(tmp, "%d", laststatus);
     *output = calloc(strlen(tmp)+1, sizeof(char));
     strcpy(*output, tmp);
@@ -130,7 +130,7 @@ int printcom(int argc, char** args, char** output) {
 }
 
 int pidcom(char** output) {
-    char tmp[10];
+    char tmp[10] = { 0 };
     sprintf(tmp, "%d", getpid());
     *output = calloc(strlen(tmp)+1, sizeof(char));
     strcpy(*output, tmp);
@@ -139,7 +139,7 @@ int pidcom(char** output) {
 }
 
 int ppidcom(char** output) {
-    char tmp[10];
+    char tmp[10] = { 0 };
     sprintf(tmp, "%d", getppid());
     *output = calloc(strlen(tmp)+1, sizeof(char));
     strcpy(*output, tmp);
@@ -151,7 +151,7 @@ int ppidcom(char** output) {
 //    Vgrajeni ukazi za delo z imeniki      //
 //////////////////////////////////////////////
 int dirchangecom(char* dest) {
-    char dest2[100];
+    char dest2[100] = { 0 };
     if(dest == NULL) {
         strcpy(dest2, "/");
     } else {
@@ -168,7 +168,7 @@ int dirchangecom(char* dest) {
 }
 
 int dirwherecom(char** output) {
-    char buffer[1000];
+    char buffer[1000] = { 0 };
     if(getcwd(buffer, sizeof(buffer)) == NULL) {
         int err = errno;
         printf("dirwhere: %s\n", strerror(err));
@@ -230,7 +230,7 @@ int dirlistcom(char* target, char** output) {
     }
 
     struct dirent *entry = readdir(dir);
-    char line[10000];
+    char line[10000] = { 0 };
     // printf("%s", entry->d_name);
     strcat(line, entry->d_name);
     entry = readdir(dir);
@@ -250,8 +250,9 @@ int dirlistcom(char* target, char** output) {
         return err;   
     }
 
-    *output = calloc(strlen(line), sizeof(char));
+    *output = calloc(strlen(line)+1, sizeof(char));
     strcpy(*output, line);
+    (*output)[strlen(line)] = '\0';
 
     free(path);
     return 0;
@@ -279,11 +280,43 @@ int linksoftcom(char* target, char* name) {
     return 0;
 }
 
+int linkreadcom(char* target, char** output) {
+    char buffer[100] = { 0 };
+    if(readlink(target, buffer, sizeof(buffer)) < 0) {
+        int err = errno;
+        printf("linkread: %s\n", strerror(err));
+        return err; 
+    }
+    
+    *output = calloc(strlen(buffer)+2, sizeof(char));
+    strcpy(*output, buffer);
+    (*output)[strlen(buffer)] = '\n';
+    (*output)[strlen(buffer)+1] = '\0';
+    return 0;
+}
+
+int unlinkcom(char* target) {
+    if(remove(target) < 0) {
+        int err = errno;
+        printf("unlink: %s\n", strerror(err));
+        return err;  
+    }
+    return 0;
+}
+
+int renamecom(char* oldpath, char* newpath) {
+    if(rename(oldpath, newpath) < 0) {
+        int err = errno;
+        printf("rename: %s\n", strerror(err));
+        return err;  
+    }
+    return 0;
+}
 
 
 
 int evaluate(int argc, char** args) {
-    char* output; char** input; int inputc = 0; int status; int indesc; int outdesc;
+    char* output = NULL; char** input; int inputc = 0; int status; int indesc; int outdesc;
     bool redirected_in = false; bool redirected_out = false; bool run_background = false; char* inpath; char* outpath;
 
     if(argc == 0) {
@@ -432,15 +465,33 @@ int evaluate(int argc, char** args) {
         status = linksoftcom(input[1], input[2]);
         return status;
     }
-    
+    else if(strcmp(input[0], "linkread") == 0) {
+        if(inputc == 1)
+            return -1;
+        status = linkreadcom(input[1], &output);
+    }
+    else if(strcmp(input[0], "unlink") == 0) {
+        if(inputc == 1)
+            return -1;
+        status = unlinkcom(input[1]);
+        return status;
+    }
+    else if(strcmp(input[0], "rename") == 0) {
+        if(inputc < 3)
+            return -1;
+        status = renamecom(input[1], input[2]);
+        return status;
+    }
 
     else {
         printf("idk komandu\n");
         return -1;
     }
 
-    write(outdesc, output, strlen(output));
-    free(output);
+    if(output != NULL) {
+        write(outdesc, output, strlen(output));
+        free(output);
+    }
     return status;
 }
 
@@ -452,7 +503,7 @@ int main(int argc, char* argv[]) {
         printf("%s> ", shellname);
 
         while(1) {
-            char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG];
+            char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG] = { 0 };
             //line available
             if(fgets(line, sizeof(line), stdin)) {
                 fflush(stdin); //flush
