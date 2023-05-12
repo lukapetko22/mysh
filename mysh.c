@@ -10,15 +10,18 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
 
-#define MAX_NUMBER_OF_ARGS 100
-#define MAX_LEN_OF_ARG 1000
+#define MAX_NUMBER_OF_ARGS 1000
+#define MAX_LEN_OF_ARG 100
 
 /*
     Global vars
 */
 char shellname[100] = { 0 };
 int laststatus = 0;
+char procfspath[1000] = { 0 };
 
 
 
@@ -84,6 +87,9 @@ int split(char* input, char*** output) {
     for(int i = 0; i < lineindex; i++) {
         (*output)[i] = calloc(strlen(items[i]), sizeof(char));
         strcpy((*output)[i], items[i]);
+    }
+    
+    for(int i = 0; i < MAX_NUMBER_OF_ARGS; i++) {
         free(items[i]);
     }
     free(items);
@@ -322,6 +328,315 @@ int removecom(char* target) {
     return 0;
 }
 
+int cpcatcom(char* src, char* dest) {
+    //open the file
+    int desk = open(src, O_RDONLY);
+    if(desk < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        return err;  
+    }
+
+    //get the size
+    struct stat fs;
+    if(stat(src, &fs) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        return err;
+    }
+    long size = fs.st_size;
+
+    //allocate memory and read the file into it
+    char* content = calloc(size, sizeof(char));
+    if(read(desk, content, size) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err;  
+    }
+
+    //close the file
+    if(close(desk) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err;  
+    }
+
+    //create the dest file
+    desk = creat(dest, O_WRONLY);
+    if(desk < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err;    
+    }
+
+    //change permissions
+    if(chmod(dest, 0777) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err; 
+    }
+
+    //write to it
+    if(write(desk, content, size) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err;
+    }
+
+    //close the file
+    if(close(desk) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        free(content);
+        return err;  
+    }
+
+    free(content);
+    return 0;
+}
+
+//////////////////////////////////////////////
+//    Vgrajeni ukazi za info o sys          //
+//////////////////////////////////////////////
+
+int sysinfocom(char** output) {
+    struct utsname data;
+    if(uname(&data) < 0) {
+        int err = errno;
+        printf("sysinfo: %s\n", strerror(err));
+        return err;     
+    }
+
+    char buffer[10000] = { 0 };
+    strcat(buffer, "Sysname: ");
+    strcat(buffer, data.sysname);
+    strcat(buffer, "\nNodename: ");
+    strcat(buffer, data.nodename);
+    strcat(buffer, "\nRelease: ");
+    strcat(buffer, data.release);
+    strcat(buffer, "\nVersion: ");
+    strcat(buffer, data.version);
+    strcat(buffer, "\nMachine: ");
+    strcat(buffer, data.machine);
+
+    *output = calloc(strlen(buffer)+2, sizeof(char));
+    strcpy(*output, buffer);
+    (*output)[strlen(buffer)] = '\n';
+    (*output)[strlen(buffer)+1] = '\0';
+
+    return 0;
+}
+
+int shellinfocom(char** output) {
+    char uid[10] = { 0 };
+    sprintf(uid, "%d", getuid());
+    char euid[10] = { 0 };
+    sprintf(euid, "%d", geteuid());
+    char gid[10] = { 0 };
+    sprintf(gid, "%d", getgid());
+    char egid[10] = { 0 };
+    sprintf(egid, "%d", getegid());
+
+    char buffer[1000] = { 0 };
+    strcat(buffer, "Uid: ");
+    strcat(buffer, uid);
+    strcat(buffer, "\nEUid: ");
+    strcat(buffer, euid);
+    strcat(buffer, "\nGid: ");
+    strcat(buffer, gid);
+    strcat(buffer, "\nEGid: ");
+    strcat(buffer, egid);
+
+    *output = calloc(strlen(buffer)+2, sizeof(char));
+    strcpy(*output, buffer);
+    (*output)[strlen(buffer)] = '\n';
+    (*output)[strlen(buffer)+1] = '\0';
+
+    return 0;
+}
+
+//////////////////////////////////////////////
+//    Vgrajeni ukazi za delo s procesi      //
+//////////////////////////////////////////////
+
+int proccom(char* path) {
+    //check if the path exists
+    if(access(path, F_OK|R_OK) < 0) {
+        return 1;
+    }
+    strcpy(procfspath, path);
+    return 0;
+}
+
+int pidscom(char** output) {
+    if(strlen(procfspath) == 0)
+        return -1;
+    
+    char* procdirlist;
+    dirlistcom(procfspath, &procdirlist);
+    procdirlist[strlen(procdirlist)-1] = '\0'; //remove \n
+    //split it
+    char** entries = NULL;
+    int n = split(procdirlist, &entries);
+    free(procdirlist);
+
+    char* buffer = calloc(11*MAX_NUMBER_OF_ARGS, sizeof(char));
+    //check which ones are numerical
+    for(int i = 0; i < n; i++) {
+        bool numerical = true;
+        for(int j = 0; j < strlen(entries[i]); j++) {
+            if(entries[i][j] < 48 || entries[i][j] > 57) {
+                numerical = false;
+                break;
+            }
+        }
+        if(numerical == true) {
+            strcat(buffer, entries[i]);
+            strcat(buffer, "\n");
+        }
+    }
+    buffer[(11*MAX_NUMBER_OF_ARGS)-1] = '\0';
+
+    *output = calloc(strlen(buffer)+1, sizeof(char));
+    strcpy(*output, buffer);
+    (*output)[strlen(buffer)] = '\0';
+    free(buffer);
+
+
+    if(entries != NULL) {
+        for(int i = 0; i < n; i++) {
+            free(entries[i]);
+        }
+        free(entries);
+    }
+
+    return 0;
+}
+
+int pinfocom(char** output) {
+    int status = 0;
+
+    char* pidsstring;
+    pidscom(&pidsstring);
+    //replace \n with ' '
+    for(int i = 0; i < strlen(pidsstring); i++) {
+        if(pidsstring[i] == '\n')
+            pidsstring[i] = ' ';
+    }
+
+    char** processes = NULL;
+    int n = split(pidsstring, &processes);
+    free(pidsstring);
+
+    char* outputbuffer = calloc(n*100, sizeof(char));
+    sprintf(outputbuffer, "%5s %5s %6s %s\n", "PID", "PPID", "STANJE", "IME");
+
+    //go through all process stat files
+    for(int i = 0; i < n; i++) {
+        char processpath[1000] = { 0 };
+        strcat(processpath, procfspath);
+        strcat(processpath, "/");
+        strcat(processpath, processes[i]);
+        strcat(processpath, "/stat");
+        
+        //open the file
+        int desk = open(processpath, O_RDONLY);
+        if(desk < 0) {
+            int err = errno;
+            printf("pinfo: %s\n", strerror(err));
+            status = err;
+            goto END; 
+        }
+
+        int size = 1000;
+        //read the contents
+        char* content = calloc(size, sizeof(char));
+        if(read(desk, content, size) < 0) {
+            int err = errno;
+            printf("pinfo: %s\n", strerror(err));
+            free(content);
+            status = err;
+            goto END;
+        }
+
+        // //change ( and ) for " so that we can use the split function
+        // for(int j = 0; j < strlen(content); j++) {
+        //     if(content[j] == '(' || content[j] == ')')
+        //         content[j] = '"';
+        // }
+        if(content[strlen(content)-1] == '\n')
+            content[strlen(content)-1] = '\0';
+
+        //extract data
+        char pid[10] = { 0 };
+        char pname[100] = { 0 };
+        char state[100] = { 0 };
+        char ppid[10] = { 0 };
+        int index = 0;
+
+        int j = 0;
+        for(; content[j] != ' '; j++) {
+            pid[index] = content[j];
+            index++;
+        }
+        j+=2;
+        pid[index] = '\0';
+        index = 0;
+        
+        for(; content[j] != ')'; j++) {
+            pname[index] = content[j];
+            index++;
+        }
+        j+=2;
+        pname[index] = '\0';
+        index = 0;
+
+        for(; content[j] != ' '; j++) {
+            state[index] = content[j];
+            index++;
+        }
+        j++;
+        state[index] = '\0';
+        index = 0;
+
+        for(; content[j] != ' '; j++) {
+            ppid[index] = content[j];
+            index++;
+        }
+
+        char line[100] = { 0 };
+        sprintf(line, "%5s %5s %6s %s\n", pid, ppid, state, pname);
+        strcat(outputbuffer, line);
+
+        free(content);
+        //close the file
+        if(close(desk) < 0) {
+            int err = errno;
+            printf("pinfo: %s\n", strerror(err));
+            status = err;
+            goto END; 
+        }
+    }
+
+    *output = calloc(strlen(outputbuffer)+1, sizeof(char));
+    strcpy(*output, outputbuffer);
+    (*output)[strlen(outputbuffer)] = '\0';
+    free(outputbuffer);
+
+    END:
+    if(processes != NULL) {
+        for(int i = 0; i < n; i++)
+            free(processes[i]);
+        free(processes);
+    }
+    return status;
+}
+
 
 
 int evaluate(int argc, char** args) {
@@ -336,10 +651,14 @@ int evaluate(int argc, char** args) {
         Check for redirections and if we should run it in the background
     */
     //bg
+    int forkpid = -1;
     if(strcmp(args[argc-1], "&") == 0) {
         run_background = true;
         argc--;
     }
+
+
+
     //redirected out
     if(args[argc-1][0] == '>') {
         redirected_out = true;
@@ -427,7 +746,7 @@ int evaluate(int argc, char** args) {
         status = pidcom(&output);
     }
     else if(strcmp(input[0], "ppid") == 0) {
-        status = pidcom(&output);
+        status = ppidcom(&output);
     }
     else if(strcmp(input[0], "dirwhere") == 0) {
         status = dirwherecom(&output);
@@ -497,6 +816,30 @@ int evaluate(int argc, char** args) {
         status = removecom(input[1]);
         return status;
     }
+    else if(strcmp(input[0], "cpcat") == 0) {
+        if(inputc < 3)
+            return -1;
+        status = cpcatcom(input[1], input[2]);
+        return status;
+    }
+    else if(strcmp(input[0], "sysinfo") == 0) {
+        status = sysinfocom(&output);
+    }
+    else if(strcmp(input[0], "shellinfo") == 0) {
+        status = shellinfocom(&output);
+    }
+    else if(strcmp(input[0], "proc") == 0) {
+        if(inputc == 1)
+            status = proccom("/proc");
+        else
+            status = proccom(input[1]);
+    }
+    else if(strcmp(input[0], "pids") == 0) {
+        status = pidscom(&output);
+    }
+    else if(strcmp(input[0], "pinfo") == 0) {
+        status = pinfocom(&output);
+    }
 
     else {
         printf("idk komandu\n");
@@ -541,7 +884,11 @@ int main(int argc, char* argv[]) {
                 //evaluate
                 laststatus = evaluate(n, tokens);
 
-
+                //free up tokens mem
+                for(int i = 0; i < n; i++) {
+                    free(tokens[i]);
+                }
+                free(tokens);
 
                 printf("%s> ", shellname);
             }
