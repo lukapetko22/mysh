@@ -12,6 +12,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 
 #define MAX_NUMBER_OF_ARGS 1000
 #define MAX_LEN_OF_ARG 100
@@ -95,6 +96,17 @@ int split(char* input, char*** output) {
     free(items);
 
     return lineindex;
+}
+
+/*
+    Clears all zombie processes
+*/
+void clearZombies() {
+    while(1) {
+        int out = waitpid(-1, NULL, WNOHANG);
+        if(out <= 0)
+            return;
+    }
 }
 
 
@@ -648,17 +660,8 @@ int evaluate(int argc, char** args) {
     }
 
     /*
-        Check for redirections and if we should run it in the background
+        Check for redirections
     */
-    //bg
-    int forkpid = -1;
-    if(strcmp(args[argc-1], "&") == 0) {
-        run_background = true;
-        argc--;
-    }
-
-
-
     //redirected out
     if(args[argc-1][0] == '>') {
         redirected_out = true;
@@ -840,10 +843,45 @@ int evaluate(int argc, char** args) {
     else if(strcmp(input[0], "pinfo") == 0) {
         status = pinfocom(&output);
     }
-
+    //external program
     else {
-        printf("idk komandu\n");
-        return -1;
+        int forkpid = fork();
+        if(forkpid < 0)
+            return forkpid;
+        else if(forkpid == 0) { //child
+            //make a new array with args
+            char** execargs = malloc((inputc+1) * sizeof(char*));
+            for(int i = 0; i < inputc; i++) {
+                execargs[i] = calloc(strlen(input[i])+1, sizeof(char));
+                strcpy(execargs[i], input[i]);
+            }
+            execargs[inputc] = NULL;
+
+            //piping
+            dup2(outdesc, 1);
+
+            //run the external program
+            if(execvp(input[0], execargs) < 0) {
+                int err = errno;
+                printf("%s: %s\n", input[0], strerror(err));
+                status = err;
+                goto CLEANUP;
+            }
+
+            CLEANUP:
+            for(int i = 0; i < inputc; i++)
+                free(execargs[i]);
+            free(execargs);
+
+            exit(status);
+
+        } else { //parent
+            if(waitpid(forkpid, &status, 0) < 0) { //wait for the child to finish executing
+                int err = errno;
+                printf("%s: %s\n", input[0], strerror(err));
+                return err;
+            }
+        }
     }
 
     if(output != NULL) {
@@ -861,6 +899,8 @@ int main(int argc, char* argv[]) {
         printf("%s> ", shellname);
 
         while(1) {
+            clearZombies();
+
             char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG] = { 0 };
             //line available
             if(fgets(line, sizeof(line), stdin)) {
@@ -880,18 +920,37 @@ int main(int argc, char* argv[]) {
                     continue; 
                 }
 
-
-                //evaluate
-                laststatus = evaluate(n, tokens);
-
+                //check if it should be run in the background
+                bool run_background = false;
+                int forkpid = -1;
+                if(strcmp(tokens[n-1], "&") == 0) {
+                    run_background = true;
+                    n--;
+                    forkpid = fork();
+                    if(forkpid < 0)
+                        laststatus = forkpid;
+                }
+                                                                         //child
+                if(run_background == false || (run_background == true && forkpid == 0)) {
+                    //evaluate
+                    laststatus = evaluate(n, tokens);
+                } else {
+                    laststatus = 0;
+                }
+                
                 //free up tokens mem
                 for(int i = 0; i < n; i++) {
                     free(tokens[i]);
                 }
                 free(tokens);
 
+                //child ran in the background
+                if(run_background == true && forkpid == 0)
+                    exit(laststatus);
+
                 printf("%s> ", shellname);
             }
+
             sleep(1);
         }
         return 0;
