@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
+#include <poll.h>
 
 #define MAX_NUMBER_OF_ARGS 1000
 #define MAX_LEN_OF_ARG 100
@@ -37,7 +38,6 @@ int split(char* input, char*** output) {
         output = NULL;
         return 0;
     }
-
     items = malloc(MAX_NUMBER_OF_ARGS*sizeof(char*));
     for(int i = 0; i < MAX_NUMBER_OF_ARGS; i++) {
         items[i] = calloc(MAX_LEN_OF_ARG, sizeof(char));
@@ -78,17 +78,18 @@ int split(char* input, char*** output) {
     }
     if(multiple_spaces == false)
         lineindex++;
-    
+
     //Remove new line
     if(items[lineindex-1][strlen(items[lineindex-1])-1] == '\n')
         items[lineindex-1][strlen(items[lineindex-1])-1] = '\0';
-
+    
     //copy to output
     *output = malloc(lineindex*sizeof(char*));
     for(int i = 0; i < lineindex; i++) {
         (*output)[i] = calloc(strlen(items[i]), sizeof(char));
         strcpy((*output)[i], items[i]);
     }
+    
     
     for(int i = 0; i < MAX_NUMBER_OF_ARGS; i++) {
         free(items[i]);
@@ -585,10 +586,10 @@ int pinfocom(char** output) {
             content[strlen(content)-1] = '\0';
 
         //extract data
-        char pid[10] = { 0 };
-        char pname[100] = { 0 };
-        char state[100] = { 0 };
-        char ppid[10] = { 0 };
+        char pid[100] = { 0 };
+        char pname[200] = { 0 };
+        char state[200] = { 0 };
+        char ppid[100] = { 0 };
         int index = 0;
 
         int j = 0;
@@ -621,7 +622,7 @@ int pinfocom(char** output) {
             index++;
         }
 
-        char line[100] = { 0 };
+        char line[300] = { 0 };
         sprintf(line, "%5s %5s %6s %s\n", pid, ppid, state, pname);
         strcat(outputbuffer, line);
 
@@ -649,6 +650,31 @@ int pinfocom(char** output) {
     return status;
 }
 
+int waitonecom(char* pidstr) {
+    if(pidstr != NULL) {
+        int pid = atoi(pidstr);
+        int status;
+        if(waitpid(pid, &status, 0) < 0) {
+            int err = errno;
+            printf("waitone: %s\n", strerror(err));
+            return err;
+        } 
+    } else {
+        int status;
+        if(wait(&status) < 0) {
+            int err = errno;
+            printf("waitone: %s\n", strerror(err));
+            return err;
+        }
+    }
+    return 0;
+}
+
+int waitallcom() {
+    int status;
+    while(wait(&status) > 0) {}
+    return 0;
+}
 
 
 int evaluate(int argc, char** args) {
@@ -700,14 +726,27 @@ int evaluate(int argc, char** args) {
             return err;
         }
 
-        char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG];
-        char fromfile[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG];
-        read(indesc, fromfile, sizeof(fromfile));
-        strcat(line, args[0]);
-        strcat(line, " ");
-        strcat(line, fromfile);
-        inputc = split(line, &input);
+        // char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG];
+        // char fromfile[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG];
+        struct stat fs;
+        stat(inpath, &fs);
+        unsigned long filesize = fs.st_size;
 
+        char* fromfile = calloc(filesize+1, sizeof(char));
+        read(indesc, fromfile, filesize);
+        if(fromfile[strlen(fromfile)-1] == '\n')
+            fromfile[strlen(fromfile)-1] = '\0';
+
+        inputc = argc;
+        input = malloc(argc*sizeof(char*));
+        for(int i = 0; i < argc-1; i++) {
+            input[i] = calloc(strlen(args[i])+1, sizeof(char));
+            strcpy(input[i], args[i]);
+        }
+        input[argc-1] = calloc(strlen(fromfile)+1,sizeof(char));
+        strcpy(input[argc-1], fromfile);
+
+        free(fromfile);
         argc--;
     } else {
         input = args;
@@ -843,6 +882,21 @@ int evaluate(int argc, char** args) {
     else if(strcmp(input[0], "pinfo") == 0) {
         status = pinfocom(&output);
     }
+    else if(strcmp(input[0], "waitone") == 0) {
+        if(inputc == 1)
+            status = waitonecom(NULL);
+        else
+            status = waitonecom(input[1]);
+    }
+    else if(strcmp(input[0], "waitall") == 0) {
+        status = waitallcom();
+    }
+    else if(strcmp(input[0], "pipes") == 0) {
+        printf("evo\n");
+        for(int i = 0; i < inputc; i++) {
+            printf("%s\n", input[i]);
+        }
+    }
     //external program
     else {
         int forkpid = fork();
@@ -884,8 +938,17 @@ int evaluate(int argc, char** args) {
         }
     }
 
+    END:
+    if(redirected_in == true) {
+        for(int i = 0; i < inputc; i++) {
+            free(input[i]);
+        }
+        free(input);
+    }
+
     if(output != NULL) {
         write(outdesc, output, strlen(output));
+        fflush(stdout);
         free(output);
     }
     return status;
@@ -900,8 +963,8 @@ int main(int argc, char* argv[]) {
 
         while(1) {
             clearZombies();
+            char line[100*100] = { 0 };
 
-            char line[MAX_NUMBER_OF_ARGS*MAX_LEN_OF_ARG] = { 0 };
             //line available
             if(fgets(line, sizeof(line), stdin)) {
                 fflush(stdin); //flush
@@ -954,6 +1017,8 @@ int main(int argc, char* argv[]) {
             sleep(1);
         }
         return 0;
+    } else {
+        
     }
 
 
