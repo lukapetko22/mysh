@@ -17,6 +17,7 @@
 
 #define MAX_NUMBER_OF_ARGS 1000
 #define MAX_LEN_OF_ARG 100
+#define MAX_PIPE_OUTPUT 10000
 
 /*
     Global vars
@@ -40,7 +41,7 @@ int split(char* input, char*** output) {
     }
     items = malloc(MAX_NUMBER_OF_ARGS*sizeof(char*));
     for(int i = 0; i < MAX_NUMBER_OF_ARGS; i++) {
-        items[i] = calloc(MAX_LEN_OF_ARG, sizeof(char));
+        items[i] = calloc(MAX_LEN_OF_ARG+1, sizeof(char));
     }
 
     for(int i = 0; i < strlen(input); i++) {
@@ -86,7 +87,7 @@ int split(char* input, char*** output) {
     //copy to output
     *output = malloc(lineindex*sizeof(char*));
     for(int i = 0; i < lineindex; i++) {
-        (*output)[i] = calloc(strlen(items[i]), sizeof(char));
+        (*output)[i] = calloc(strlen(items[i])+1, sizeof(char));
         strcpy((*output)[i], items[i]);
     }
     
@@ -116,7 +117,7 @@ void clearZombies() {
 //////////////////////////////////////
 int helpcom(char** output) {
     char helpmsg[] = "This is the help menu\n";
-    *output = calloc(strlen(helpmsg), sizeof(char));
+    *output = calloc(strlen(helpmsg)+1, sizeof(char));
     strcpy(*output, helpmsg);
     return 0;
 }
@@ -139,7 +140,7 @@ int printcom(int argc, char** args, char** output) {
     }
     len+= 2;
 
-    *output = calloc(len, sizeof(char));
+    *output = calloc(len+1, sizeof(char));
     for(int i = 1; i < argc; i++) {
         strcat(*output, args[i]);
         if(i != argc-1)
@@ -360,7 +361,7 @@ int cpcatcom(char* src, char* dest) {
     long size = fs.st_size;
 
     //allocate memory and read the file into it
-    char* content = calloc(size, sizeof(char));
+    char* content = calloc(size+1, sizeof(char));
     if(read(desk, content, size) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
@@ -568,7 +569,7 @@ int pinfocom(char** output) {
 
         int size = 1000;
         //read the contents
-        char* content = calloc(size, sizeof(char));
+        char* content = calloc(size+1, sizeof(char));
         if(read(desk, content, size) < 0) {
             int err = errno;
             printf("pinfo: %s\n", strerror(err));
@@ -692,7 +693,7 @@ int evaluate(int argc, char** args) {
     if(args[argc-1][0] == '>') {
         redirected_out = true;
 
-        outpath = calloc(strlen(args[argc-1]), sizeof(char));
+        outpath = calloc(strlen(args[argc-1])+1, sizeof(char));
         for(int i = 1; i < strlen(args[argc-1]); i++)
             outpath[i-1] = args[argc-1][i];
         outdesc = creat(outpath, O_WRONLY);
@@ -716,7 +717,7 @@ int evaluate(int argc, char** args) {
     if(args[argc-1][0] == '<') {
         redirected_in = true;
 
-        inpath = calloc(strlen(args[argc-1]), sizeof(char));
+        inpath = calloc(strlen(args[argc-1])+1, sizeof(char));
         for(int i = 1; i < strlen(args[argc-1]); i++)
             inpath[i-1] = args[argc-1][i];
         indesc = open(inpath, O_RDONLY);
@@ -762,7 +763,8 @@ int evaluate(int argc, char** args) {
         status = statuscom(&output);
     }
     else if(strcmp(input[0], "exit") == 0) {
-        exit(atoi(input[1]));
+        if(inputc >= 2)
+            exit(atoi(input[1]));
     }
     else if(strcmp(input[0], "name") == 0) {
         if(inputc > 1) {
@@ -892,10 +894,92 @@ int evaluate(int argc, char** args) {
         status = waitallcom();
     }
     else if(strcmp(input[0], "pipes") == 0) {
-        printf("evo\n");
-        for(int i = 0; i < inputc; i++) {
-            printf("%s\n", input[i]);
+        char* nextcmdinput = calloc(2, sizeof(char));
+
+        for(int j = 1; j < inputc; j++) {
+            fflush(stdout);
+
+            char* command = input[j];
+
+            char** pipeinputtmp;
+            int pipeinputctmp = split(command, &pipeinputtmp);
+            
+            //add the previos comm output
+            char** pipeinput;
+            int pipeinputc;
+            if(strlen(nextcmdinput) == 0) {
+                pipeinput = malloc(pipeinputctmp*sizeof(char*));
+                pipeinputc = pipeinputctmp;
+            } else {
+                pipeinput = malloc((pipeinputctmp+1)*sizeof(char*));
+                pipeinputc = pipeinputctmp+1;
+            }
+            for(int i = 0; i < pipeinputctmp; i++) {
+                pipeinput[i] = calloc(strlen(pipeinputtmp[i])+1, sizeof(char));
+                strcpy(pipeinput[i], pipeinputtmp[i]);
+            }
+            if(strlen(nextcmdinput) != 0) {
+                pipeinput[pipeinputctmp] = calloc(strlen(nextcmdinput)+1, sizeof(char));
+                strcpy(pipeinput[pipeinputctmp], nextcmdinput);
+            }
+
+            //clean
+            for(int i = 0; i < pipeinputctmp; i++)
+                free(pipeinputtmp[i]);
+            free(pipeinputtmp);
+
+            //create pipes
+            int pipedesc[2];
+            if(pipe(pipedesc) < 0) {
+                int err = errno;
+                printf("pipes: %s", strerror(err));
+                status = err;
+                goto PIPESCLEANUP;   
+            }
+
+            //redirect stdout to the new pipe
+            int original_stdout = dup(1);
+            dup2(pipedesc[1], 1);
+
+            //evaluate the command
+            status = evaluate(pipeinputc, pipeinput);
+            printf("\n");
+            fflush(stdout);
+
+            //return our stdout
+            dup2(original_stdout, 1);
+
+            //read the output
+            char* pipeoutput = calloc(MAX_PIPE_OUTPUT+1, sizeof(char));
+            if(read(pipedesc[0], pipeoutput, MAX_PIPE_OUTPUT) < 0) {
+                int err = errno;
+                printf("pipes: %s\n", strerror(err));
+                free(pipeoutput);
+                goto PIPESCLEANUP;  
+            }
+            pipeoutput[strlen(pipeoutput)-1] = '\0';
+
+            //close pipes
+            close(pipedesc[0]);
+            close(pipedesc[1]);
+
+            if(strlen(pipeoutput) > 1 || pipeoutput[0] != '\n') {
+                free(nextcmdinput);
+                nextcmdinput = calloc(strlen(pipeoutput)+1, sizeof(char));
+                strcpy(nextcmdinput, pipeoutput);
+            } else {
+                free(nextcmdinput);
+                nextcmdinput = calloc(2, sizeof(char));
+            }
+
+            free(pipeoutput);
+            PIPESCLEANUP:
+            for(int i = 0; i < pipeinputc; i++) {
+                free(pipeinput[i]);
+            }
+            free(pipeinput);
         }
+        // printf("%s", nextcmdinput);
     }
     //external program
     else {
