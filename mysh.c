@@ -1224,14 +1224,55 @@ int main(int argc, char* argv[]) {
         }
         return 0;
     } else {
+        // printf("%s> ", shellname);
+
         char line[100*100] = { 0 };
-        if(fgets(line, sizeof(line), stdin)) {
-            printf(line);
+        while(fgets(line, sizeof(line), stdin)) {
+            if(strlen(line) == 0 || line[0] == '#' || (line[0] == '\n' && strlen(line) == 1)) {
+                // printf("%s> ", shellname);
+                continue;
+            }
+            if(line[strlen(line)-1] == '\n')
+                line[strlen(line)-1] = '\0';
+            
+            //split to tokens
+            char** tokens;
+            int n = split(line, &tokens);
+            if(tokens[0][0] == '#' || strcmp(tokens[0], "\n") == 0) {
+                // printf("%s> ", shellname);
+                continue; 
+            }
+
+            //check if it should be run in the background
+            bool run_background = false;
+            int forkpid = -1;
+            if(strcmp(tokens[n-1], "&") == 0) {
+                run_background = true;
+                n--;
+                forkpid = fork();
+                if(forkpid < 0)
+                    laststatus = forkpid;
+            }
+                                                                        //child
+            if(run_background == false || (run_background == true && forkpid == 0)) {
+                //evaluate
+                laststatus = evaluate(n, tokens);
+            } else {
+                laststatus = 0;
+            }
+            
+            //free up tokens mem
+            for(int i = 0; i < n; i++) {
+                free(tokens[i]);
+            }
+            free(tokens);
+
+            //child ran in the background
+            if(run_background == true && forkpid == 0)
+                exit(laststatus);
+            
+            // printf("%s> ", shellname);
         }
     }
-
-
-
-
     return 0;
 }
