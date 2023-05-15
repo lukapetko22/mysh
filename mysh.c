@@ -26,7 +26,47 @@ char shellname[100] = { 0 };
 int laststatus = 0;
 char procfspath[1000] = { 0 };
 
+#define NUM_OF_BUILTINS 29
+char global_builtins[29][20] = {
+    "help",
+    "status",
+    "exit",
+    "name",
+    "print",
+    "echo",
+    "pid",
+    "ppid",
+    "dirwhere",
+    "dirbase",
+    "dirchange",
+    "dirmake",
+    "dirremove",
+    "dirlist",
+    "linkhard",
+    "linksoft",
+    "linkread",
+    "unlink",
+    "rename",
+    "remove",
+    "cpcat",
+    "sysinfo",
+    "shellinfo",
+    "proc",
+    "pids",
+    "pinfo",
+    "waitone",
+    "waitall",
+    "pipes"
+};
 
+
+bool isBuiltin(char* input) {
+    for(int i = 0; i < NUM_OF_BUILTINS; i++) {
+        if(strcmp(input, global_builtins[i]) == 0)
+            return true;
+    }
+    return false;
+}
 
 /*
     Splits the given string to arguments, returns number of args
@@ -894,7 +934,14 @@ int evaluate(int argc, char** args) {
         status = waitallcom();
     }
     else if(strcmp(input[0], "pipes") == 0) {
-        char* nextcmdinput = calloc(2, sizeof(char));
+        char* nextcmdinput;
+        if(redirected_in == true) {
+            nextcmdinput = calloc(strlen(input[inputc-1])+1, sizeof(char));
+            strcpy(nextcmdinput, input[inputc-1]);
+            inputc--;
+        } else {
+            nextcmdinput = calloc(2, sizeof(char));
+        }
 
         for(int j = 1; j < inputc; j++) {
             fflush(stdout);
@@ -903,83 +950,158 @@ int evaluate(int argc, char** args) {
 
             char** pipeinputtmp;
             int pipeinputctmp = split(command, &pipeinputtmp);
-            
-            //add the previos comm output
-            char** pipeinput;
-            int pipeinputc;
-            if(strlen(nextcmdinput) == 0) {
-                pipeinput = malloc(pipeinputctmp*sizeof(char*));
-                pipeinputc = pipeinputctmp;
-            } else {
-                pipeinput = malloc((pipeinputctmp+1)*sizeof(char*));
-                pipeinputc = pipeinputctmp+1;
-            }
-            for(int i = 0; i < pipeinputctmp; i++) {
-                pipeinput[i] = calloc(strlen(pipeinputtmp[i])+1, sizeof(char));
-                strcpy(pipeinput[i], pipeinputtmp[i]);
-            }
-            if(strlen(nextcmdinput) != 0) {
-                pipeinput[pipeinputctmp] = calloc(strlen(nextcmdinput)+1, sizeof(char));
-                strcpy(pipeinput[pipeinputctmp], nextcmdinput);
-            }
 
-            //clean
-            for(int i = 0; i < pipeinputctmp; i++)
-                free(pipeinputtmp[i]);
-            free(pipeinputtmp);
+            if(isBuiltin(pipeinputtmp[0]) == true || strlen(nextcmdinput) == 0) {
+                //add the previos comm output
+                char** pipeinput;
+                int pipeinputc;
+                if(strlen(nextcmdinput) == 0) {
+                    pipeinput = malloc(pipeinputctmp*sizeof(char*));
+                    pipeinputc = pipeinputctmp;
+                } else {
+                    pipeinput = malloc((pipeinputctmp+1)*sizeof(char*));
+                    pipeinputc = pipeinputctmp+1;
+                }
+                for(int i = 0; i < pipeinputctmp; i++) {
+                    pipeinput[i] = calloc(strlen(pipeinputtmp[i])+1, sizeof(char));
+                    strcpy(pipeinput[i], pipeinputtmp[i]);
+                }
+                if(strlen(nextcmdinput) != 0) {
+                    pipeinput[pipeinputctmp] = calloc(strlen(nextcmdinput)+1, sizeof(char));
+                    strcpy(pipeinput[pipeinputctmp], nextcmdinput);
+                }
 
-            //create pipes
-            int pipedesc[2];
-            if(pipe(pipedesc) < 0) {
-                int err = errno;
-                printf("pipes: %s", strerror(err));
-                status = err;
-                goto PIPESCLEANUP;   
-            }
+                //clean
+                for(int i = 0; i < pipeinputctmp; i++)
+                    free(pipeinputtmp[i]);
+                free(pipeinputtmp);
 
-            //redirect stdout to the new pipe
-            int original_stdout = dup(1);
-            dup2(pipedesc[1], 1);
+                //create pipes
+                int pipedesc[2];
+                if(pipe(pipedesc) < 0) {
+                    int err = errno;
+                    printf("pipes: %s", strerror(err));
+                    status = err;
+                    goto PIPESCLEANUP;   
+                }
 
-            //evaluate the command
-            status = evaluate(pipeinputc, pipeinput);
-            printf("\n");
-            fflush(stdout);
+                //redirect stdout to the new pipe
+                int original_stdout = dup(1);
+                dup2(pipedesc[1], 1);
 
-            //return our stdout
-            dup2(original_stdout, 1);
+                //evaluate the command
+                status = evaluate(pipeinputc, pipeinput);
+                printf("\n");
+                fflush(stdout);
 
-            //read the output
-            char* pipeoutput = calloc(MAX_PIPE_OUTPUT+1, sizeof(char));
-            if(read(pipedesc[0], pipeoutput, MAX_PIPE_OUTPUT) < 0) {
-                int err = errno;
-                printf("pipes: %s\n", strerror(err));
+                //return our stdout
+                dup2(original_stdout, 1);
+
+                //read the output
+                char* pipeoutput = calloc(MAX_PIPE_OUTPUT+1, sizeof(char));
+                if(read(pipedesc[0], pipeoutput, MAX_PIPE_OUTPUT) < 0) {
+                    int err = errno;
+                    printf("pipes: %s\n", strerror(err));
+                    free(pipeoutput);
+                    goto PIPESCLEANUP;  
+                }
+                pipeoutput[strlen(pipeoutput)-1] = '\0';
+
+                //close pipes
+                close(pipedesc[0]);
+                close(pipedesc[1]);
+
+                if(strlen(pipeoutput) > 1 || pipeoutput[0] != '\n') {
+                    free(nextcmdinput);
+                    nextcmdinput = calloc(strlen(pipeoutput)+1, sizeof(char));
+                    strcpy(nextcmdinput, pipeoutput);
+                } else {
+                    free(nextcmdinput);
+                    nextcmdinput = calloc(2, sizeof(char));
+                }
+
                 free(pipeoutput);
-                goto PIPESCLEANUP;  
-            }
-            pipeoutput[strlen(pipeoutput)-1] = '\0';
-
-            //close pipes
-            close(pipedesc[0]);
-            close(pipedesc[1]);
-
-            if(strlen(pipeoutput) > 1 || pipeoutput[0] != '\n') {
-                free(nextcmdinput);
-                nextcmdinput = calloc(strlen(pipeoutput)+1, sizeof(char));
-                strcpy(nextcmdinput, pipeoutput);
+                PIPESCLEANUP:
+                for(int i = 0; i < pipeinputc; i++) {
+                    free(pipeinput[i]);
+                }
+                free(pipeinput);
             } else {
-                free(nextcmdinput);
-                nextcmdinput = calloc(2, sizeof(char));
-            }
+                //create pipes
+                int pipedesc[2];
+                int pipedesc2[2];
+                if(pipe(pipedesc) < 0) {
+                    int err = errno;
+                    printf("pipes: %s", strerror(err));
+                    status = err;
+                    return err; 
+                }
+                if(pipe(pipedesc2) < 0) {
+                    int err = errno;
+                    printf("pipes: %s", strerror(err));
+                    status = err;
+                    return err; 
+                }
 
-            free(pipeoutput);
-            PIPESCLEANUP:
-            for(int i = 0; i < pipeinputc; i++) {
-                free(pipeinput[i]);
+                int forkpid = fork();
+                if(forkpid < 0) {
+                    exit(-1);
+                } else if(forkpid == 0) {
+                    dup2(pipedesc[0], 0);
+                    close(pipedesc[0]);
+                    close(pipedesc[1]);
+
+                    dup2(pipedesc2[1], 1);
+                    close(pipedesc2[0]);
+                    close(pipedesc2[1]);
+
+                    char** execargs = malloc((pipeinputctmp+1)*sizeof(char*));
+                    for(int i = 0; i < pipeinputctmp; i++) {
+                        execargs[i] = calloc(strlen(pipeinputtmp[i])+1, sizeof(char));
+                        strcpy(execargs[i], pipeinputtmp[i]);
+                    }
+                    execargs[pipeinputctmp] = NULL;
+
+                    //run the external program
+                    if(execvp(pipeinputtmp[0], execargs) < 0) {
+                        int err = errno;
+                        printf("pipes: %s\n", strerror(err));
+                        status = err;
+                        exit(err);
+                    }
+
+                    exit(0);
+                } else {
+                    write(pipedesc[1], nextcmdinput, strlen(nextcmdinput));
+                    close(pipedesc[0]);
+                    close(pipedesc[1]);
+
+                    if(waitpid(forkpid, &status, 0) < 0) { //wait for the child to finish executing
+                        int err = errno;
+                        printf("pipes: %s\n", strerror(err));
+                        return err;
+                    }
+
+                    char* pipeoutput = calloc(MAX_PIPE_OUTPUT+1, sizeof(char));
+                    read(pipedesc2[0], pipeoutput, MAX_PIPE_OUTPUT);
+                    close(pipedesc2[0]);
+                    close(pipedesc2[1]);
+
+                    free(nextcmdinput);
+                    nextcmdinput = calloc(strlen(pipeoutput)+1, sizeof(char));
+                    strcpy(nextcmdinput, pipeoutput);
+                    free(pipeoutput);
+
+                    //clean
+                    for(int i = 0; i < pipeinputctmp; i++)
+                        free(pipeinputtmp[i]);
+                    free(pipeinputtmp);
+                }
             }
-            free(pipeinput);
         }
-        // printf("%s", nextcmdinput);
+        output = calloc(strlen(nextcmdinput)+1, sizeof(char));
+        strcpy(output, nextcmdinput);
+        free(nextcmdinput);
     }
     //external program
     else {
@@ -1102,7 +1224,10 @@ int main(int argc, char* argv[]) {
         }
         return 0;
     } else {
-        
+        char line[100*100] = { 0 };
+        if(fgets(line, sizeof(line), stdin)) {
+            printf(line);
+        }
     }
 
 
