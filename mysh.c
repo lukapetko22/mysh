@@ -24,10 +24,10 @@
 */
 char shellname[100] = { 0 };
 int laststatus = 0;
-char procfspath[1000] = { 0 };
+char procfspath[1000] = "/proc";
 
 #define NUM_OF_BUILTINS 29
-char global_builtins[29][20] = {
+char global_builtins[30][20] = {
     "help",
     "status",
     "exit",
@@ -42,6 +42,7 @@ char global_builtins[29][20] = {
     "dirmake",
     "dirremove",
     "dirlist",
+    "linklist",
     "linkhard",
     "linksoft",
     "linkread",
@@ -352,6 +353,41 @@ int linkreadcom(char* target, char** output) {
     strcpy(*output, buffer);
     (*output)[strlen(buffer)] = '\n';
     (*output)[strlen(buffer)+1] = '\0';
+    return 0;
+}
+
+int linklistcom(char* target, char** output) {
+    char* path;
+    dirwherecom(&path);
+    path[strlen(path)-1] = '\0'; // \n
+    
+    DIR *dir = opendir(path);
+    if(dir == NULL) {
+        int err = errno;
+        printf("dirlist: %s\n", strerror(err));
+        free(path);
+        return err; 
+    }
+
+    struct dirent *entry = readdir(dir);
+    entry = readdir(dir);
+    while(entry != NULL && strcmp(entry->d_name, target) != 0) {
+        entry = readdir(dir);
+    }
+
+    if(closedir(dir) < 0) {
+        int err = errno;
+        printf("dirlist: %s\n", strerror(err));
+        free(path);
+        return err;   
+    }
+    if(entry == NULL) {
+        return -1;
+        free(path);
+    }
+
+    struct inode *original_inode = entry->d_ino;
+
     return 0;
 }
 
@@ -817,6 +853,7 @@ int evaluate(int argc, char** args) {
             output = calloc(strlen(shellname)+2, sizeof(char));
             strcpy(output, shellname);
             strcat(output, "\n");
+            status = 0;
         }
     }
     else if(strcmp(input[0], "print") == 0) {
@@ -882,6 +919,11 @@ int evaluate(int argc, char** args) {
             return -1;
         status = linkreadcom(input[1], &output);
     }
+    else if(strcmp(input[0], "linklist") == 0) {
+        if(inputc == 1)
+            return -1;
+        status = linklistcom(input[1], &output);
+    }
     else if(strcmp(input[0], "unlink") == 0) {
         if(inputc == 1)
             return -1;
@@ -913,8 +955,12 @@ int evaluate(int argc, char** args) {
         status = shellinfocom(&output);
     }
     else if(strcmp(input[0], "proc") == 0) {
-        if(inputc == 1)
-            status = proccom("/proc");
+        if(inputc == 1) {
+            output = calloc(strlen(procfspath)+2, sizeof(char));
+            strcpy(output, procfspath);
+            (output)[strlen(procfspath)] = '\n';
+            status = 0;
+        }
         else
             status = proccom(input[1]);
     }
@@ -1160,6 +1206,15 @@ int evaluate(int argc, char** args) {
     return status;
 }
 
+void rmcomments(char* in) {
+    for(int i = 0; i < strlen(in); i++) {
+        if(in[i] == '#') {
+            in[i] = '\0';
+            return;
+        }
+    }
+}
+
 int main(int argc, char* argv[]) {
     strcpy(shellname, "mysh");
 
@@ -1178,6 +1233,19 @@ int main(int argc, char* argv[]) {
                     printf("%s> ", shellname);
                     continue;
                 }
+
+                rmcomments(line);
+
+                bool justspaces = true;
+                for(int i = 0; i < strlen(line); i++) {
+                    if(line[i] != ' ') {
+                        justspaces = false;
+                        break;
+                    }
+                }
+                if(justspaces == true)
+                    continue;
+
                 if(line[strlen(line)-1] == '\n')
                     line[strlen(line)-1] = '\0';
 
@@ -1219,8 +1287,6 @@ int main(int argc, char* argv[]) {
 
                 printf("%s> ", shellname);
             }
-
-            sleep(1);
         }
         return 0;
     } else {
@@ -1232,6 +1298,18 @@ int main(int argc, char* argv[]) {
                 // printf("%s> ", shellname);
                 continue;
             }
+            rmcomments(line);
+
+            bool justspaces = true;
+            for(int i = 0; i < strlen(line); i++) {
+                if(line[i] != ' ') {
+                    justspaces = false;
+                    break;
+                }
+            }
+            if(justspaces == true)
+                continue;
+
             if(line[strlen(line)-1] == '\n')
                 line[strlen(line)-1] = '\0';
             
