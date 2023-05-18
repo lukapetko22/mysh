@@ -364,20 +364,19 @@ int linklistcom(char* target, char** output) {
     DIR *dir = opendir(path);
     if(dir == NULL) {
         int err = errno;
-        printf("dirlist: %s\n", strerror(err));
+        printf("linklist: %s\n", strerror(err));
         free(path);
         return err; 
     }
 
     struct dirent *entry = readdir(dir);
-    entry = readdir(dir);
     while(entry != NULL && strcmp(entry->d_name, target) != 0) {
         entry = readdir(dir);
     }
 
     if(closedir(dir) < 0) {
         int err = errno;
-        printf("dirlist: %s\n", strerror(err));
+        printf("linklist: %s\n", strerror(err));
         free(path);
         return err;   
     }
@@ -386,7 +385,40 @@ int linklistcom(char* target, char** output) {
         free(path);
     }
 
-    struct inode *original_inode = entry->d_ino;
+    DIR *dir2 = opendir(path);
+    if(dir2 == NULL) {
+        int err = errno;
+        printf("linklist: %s\n", strerror(err));
+        free(path);
+        return err; 
+    }
+
+    //go through it the 2nd time
+    char line[10000] = { 0 };
+    struct dirent *entry2 = readdir(dir2);
+    while(entry2 != NULL) {
+        if(strcmp(entry2->d_name, entry->d_name) != 0 && entry2->d_ino == entry->d_ino) {
+            //printf("%s\n", entry2->d_name);
+            if(strlen(line) > 0)
+                strcat(line, "  ");
+            strcat(line, entry2->d_name);
+        }
+        entry2 = readdir(dir2);
+    }
+    strcat(line, "\n");
+
+    if(closedir(dir2) < 0) {
+        int err = errno;
+        printf("linklist: %s\n", strerror(err));
+        free(path);
+        return err;   
+    }
+
+    free(path);
+
+    *output = calloc(strlen(line)+1, sizeof(char));
+    strcpy(*output, line);
+    (*output)[strlen(line)] = '\0';
 
     return 0;
 }
