@@ -20,13 +20,13 @@
 #define MAX_PIPE_OUTPUT 10000
 
 /*
-    Global vars
+    Global vars...
 */
 char shellname[100] = { 0 };
 int laststatus = 0;
 char procfspath[1000] = "/proc";
 
-#define NUM_OF_BUILTINS 29
+#define NUM_OF_BUILTINS 30
 char global_builtins[30][20] = {
     "help",
     "status",
@@ -222,6 +222,7 @@ int dirchangecom(char* dest) {
     if(chdir(dest2) < 0) {
         int err = errno;
         printf("dirchange: %s\n", strerror(err));
+        fflush(stdout);
         return err;
     }
 
@@ -233,6 +234,7 @@ int dirwherecom(char** output) {
     if(getcwd(buffer, sizeof(buffer)) == NULL) {
         int err = errno;
         printf("dirwhere: %s\n", strerror(err));
+        fflush(stdout);
         return err;
     }
     *output = calloc(strlen(buffer)+2, sizeof(char));
@@ -257,6 +259,7 @@ int dirmakecom(char* dest) {
     if(mkdir(dest, 0777) < 0) {
         int err = errno;
         printf("dirmake: %s\n", strerror(err));
+        fflush(stdout);
         return err;
     }
     return 0;
@@ -266,6 +269,7 @@ int dirremovecom(char* target) {
     if(rmdir(target) < 0) {
         int err = errno;
         printf("dirremove: %s\n", strerror(err));
+        fflush(stdout);
         return err; 
     }
     return 0;
@@ -286,6 +290,7 @@ int dirlistcom(char* target, char** output) {
     if(dir == NULL) {
         int err = errno;
         printf("dirlist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err; 
     }
@@ -307,6 +312,7 @@ int dirlistcom(char* target, char** output) {
     if(closedir(dir) < 0) {
         int err = errno;
         printf("dirlist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err;   
     }
@@ -327,6 +333,7 @@ int linkhardcom(char* target, char* name) {
     if(link(target, name) < 0) {
         int err = errno;
         printf("linkhard: %s\n", strerror(err));
+        fflush(stdout);
         return err; 
     }
     return 0;
@@ -336,6 +343,7 @@ int linksoftcom(char* target, char* name) {
     if(symlink(target, name) < 0) {
         int err = errno;
         printf("linksoft: %s\n", strerror(err));
+        fflush(stdout);
         return err; 
     }
     return 0;
@@ -346,6 +354,7 @@ int linkreadcom(char* target, char** output) {
     if(readlink(target, buffer, sizeof(buffer)) < 0) {
         int err = errno;
         printf("linkread: %s\n", strerror(err));
+        fflush(stdout);
         return err; 
     }
     
@@ -365,6 +374,7 @@ int linklistcom(char* target, char** output) {
     if(dir == NULL) {
         int err = errno;
         printf("linklist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err; 
     }
@@ -377,6 +387,7 @@ int linklistcom(char* target, char** output) {
     if(closedir(dir) < 0) {
         int err = errno;
         printf("linklist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err;   
     }
@@ -389,6 +400,7 @@ int linklistcom(char* target, char** output) {
     if(dir2 == NULL) {
         int err = errno;
         printf("linklist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err; 
     }
@@ -397,7 +409,7 @@ int linklistcom(char* target, char** output) {
     char line[10000] = { 0 };
     struct dirent *entry2 = readdir(dir2);
     while(entry2 != NULL) {
-        if(strcmp(entry2->d_name, entry->d_name) != 0 && entry2->d_ino == entry->d_ino) {
+        if(entry2->d_ino == entry->d_ino) {
             //printf("%s\n", entry2->d_name);
             if(strlen(line) > 0)
                 strcat(line, "  ");
@@ -410,6 +422,7 @@ int linklistcom(char* target, char** output) {
     if(closedir(dir2) < 0) {
         int err = errno;
         printf("linklist: %s\n", strerror(err));
+        fflush(stdout);
         free(path);
         return err;   
     }
@@ -424,9 +437,10 @@ int linklistcom(char* target, char** output) {
 }
 
 int unlinkcom(char* target) {
-    if(remove(target) < 0) {
+    if(unlink(target) < 0) {
         int err = errno;
         printf("unlink: %s\n", strerror(err));
+        fflush(stdout);
         return err;  
     }
     return 0;
@@ -436,6 +450,7 @@ int renamecom(char* oldpath, char* newpath) {
     if(rename(oldpath, newpath) < 0) {
         int err = errno;
         printf("rename: %s\n", strerror(err));
+        fflush(stdout);
         return err;  
     }
     return 0;
@@ -445,6 +460,7 @@ int removecom(char* target) {
     if(remove(target) < 0) {
         int err = errno;
         printf("remove: %s\n", strerror(err));
+        fflush(stdout);
         return err;  
     }
     return 0;
@@ -456,6 +472,7 @@ int cpcatcom(char* src, char* dest) {
     if(desk < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         return err;  
     }
 
@@ -464,6 +481,7 @@ int cpcatcom(char* src, char* dest) {
     if(stat(src, &fs) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         return err;
     }
     long size = fs.st_size;
@@ -473,6 +491,7 @@ int cpcatcom(char* src, char* dest) {
     if(read(desk, content, size) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err;  
     }
@@ -481,6 +500,7 @@ int cpcatcom(char* src, char* dest) {
     if(close(desk) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err;  
     }
@@ -490,6 +510,7 @@ int cpcatcom(char* src, char* dest) {
     if(desk < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err;    
     }
@@ -498,6 +519,7 @@ int cpcatcom(char* src, char* dest) {
     if(chmod(dest, 0777) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err; 
     }
@@ -506,6 +528,7 @@ int cpcatcom(char* src, char* dest) {
     if(write(desk, content, size) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err;
     }
@@ -514,6 +537,7 @@ int cpcatcom(char* src, char* dest) {
     if(close(desk) < 0) {
         int err = errno;
         printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
         free(content);
         return err;  
     }
@@ -531,6 +555,7 @@ int sysinfocom(char** output) {
     if(uname(&data) < 0) {
         int err = errno;
         printf("sysinfo: %s\n", strerror(err));
+        fflush(stdout);
         return err;     
     }
 
@@ -671,6 +696,7 @@ int pinfocom(char** output) {
         if(desk < 0) {
             int err = errno;
             printf("pinfo: %s\n", strerror(err));
+            fflush(stdout);
             status = err;
             goto END; 
         }
@@ -681,6 +707,7 @@ int pinfocom(char** output) {
         if(read(desk, content, size) < 0) {
             int err = errno;
             printf("pinfo: %s\n", strerror(err));
+            fflush(stdout);
             free(content);
             status = err;
             goto END;
@@ -740,6 +767,7 @@ int pinfocom(char** output) {
         if(close(desk) < 0) {
             int err = errno;
             printf("pinfo: %s\n", strerror(err));
+            fflush(stdout);
             status = err;
             goto END; 
         }
@@ -766,6 +794,7 @@ int waitonecom(char* pidstr) {
         if(waitpid(pid, &status, 0) < 0) {
             int err = errno;
             printf("waitone: %s\n", strerror(err));
+            fflush(stdout);
             return err;
         } 
     } else {
@@ -773,6 +802,7 @@ int waitonecom(char* pidstr) {
         if(wait(&status) < 0) {
             int err = errno;
             printf("waitone: %s\n", strerror(err));
+            fflush(stdout);
             return err;
         }
     }
@@ -808,12 +838,14 @@ int evaluate(int argc, char** args) {
         if(outdesc < 0) {
             int err = errno;
             printf("%s\n", strerror(err));
+            fflush(stdout);
             return err;
         }
         chmod(outpath, 0777);
         int err = errno;
         if(err < 0) {
             printf("%s\n", strerror(err));
+            fflush(stdout);
             return err;
         }
 
@@ -832,6 +864,7 @@ int evaluate(int argc, char** args) {
         if(indesc < 0) {
             int err = errno;
             printf("%s\n", strerror(err));
+            fflush(stdout);
             return err;
         }
 
@@ -1059,6 +1092,7 @@ int evaluate(int argc, char** args) {
                 if(pipe(pipedesc) < 0) {
                     int err = errno;
                     printf("pipes: %s", strerror(err));
+                    fflush(stdout);
                     status = err;
                     goto PIPESCLEANUP;   
                 }
@@ -1080,6 +1114,7 @@ int evaluate(int argc, char** args) {
                 if(read(pipedesc[0], pipeoutput, MAX_PIPE_OUTPUT) < 0) {
                     int err = errno;
                     printf("pipes: %s\n", strerror(err));
+                    fflush(stdout);
                     free(pipeoutput);
                     goto PIPESCLEANUP;  
                 }
@@ -1111,12 +1146,14 @@ int evaluate(int argc, char** args) {
                 if(pipe(pipedesc) < 0) {
                     int err = errno;
                     printf("pipes: %s", strerror(err));
+                    fflush(stdout);
                     status = err;
                     return err; 
                 }
                 if(pipe(pipedesc2) < 0) {
                     int err = errno;
                     printf("pipes: %s", strerror(err));
+                    fflush(stdout);
                     status = err;
                     return err; 
                 }
@@ -1144,6 +1181,7 @@ int evaluate(int argc, char** args) {
                     if(execvp(pipeinputtmp[0], execargs) < 0) {
                         int err = errno;
                         printf("pipes: %s\n", strerror(err));
+                        fflush(stdout);
                         status = err;
                         exit(err);
                     }
@@ -1157,6 +1195,7 @@ int evaluate(int argc, char** args) {
                     if(waitpid(forkpid, &status, 0) < 0) { //wait for the child to finish executing
                         int err = errno;
                         printf("pipes: %s\n", strerror(err));
+                        fflush(stdout);
                         return err;
                     }
 
@@ -1202,6 +1241,7 @@ int evaluate(int argc, char** args) {
             if(execvp(input[0], execargs) < 0) {
                 int err = errno;
                 printf("%s: %s\n", input[0], strerror(err));
+                fflush(stdout);
                 status = err;
                 goto CLEANUP;
             }
@@ -1217,6 +1257,7 @@ int evaluate(int argc, char** args) {
             if(waitpid(forkpid, &status, 0) < 0) { //wait for the child to finish executing
                 int err = errno;
                 printf("%s: %s\n", input[0], strerror(err));
+                fflush(stdout);
                 return err;
             }
         }
@@ -1253,6 +1294,7 @@ int main(int argc, char* argv[]) {
     //interactive and non-interactive
     if(isatty(0) == 1) {
         printf("%s> ", shellname);
+        fflush(stdout);
 
         while(1) {
             clearZombies();
@@ -1263,6 +1305,7 @@ int main(int argc, char* argv[]) {
                 fflush(stdin); //flush
                 if(strlen(line) == 0 || line[0] == '#' || (line[0] == '\n' && strlen(line) == 1)) {
                     printf("%s> ", shellname);
+                    fflush(stdout);
                     continue;
                 }
 
@@ -1286,6 +1329,7 @@ int main(int argc, char* argv[]) {
                 int n = split(line, &tokens);
                 if(tokens[0][0] == '#' || strcmp(tokens[0], "\n") == 0) {
                     printf("%s> ", shellname);
+                    fflush(stdout);
                     continue; 
                 }
 
@@ -1318,6 +1362,7 @@ int main(int argc, char* argv[]) {
                     exit(laststatus);
 
                 printf("%s> ", shellname);
+                fflush(stdout);
             }
         }
         return 0;
