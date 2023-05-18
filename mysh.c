@@ -1247,6 +1247,18 @@ int evaluate(int argc, char** args) {
             //piping
             dup2(outdesc, 1);
 
+            int pipetmp[2];
+            if(pipe(pipetmp) < 0) {
+                int err = errno;
+                printf("pipes: %s", strerror(err));
+                fflush(stdout);
+                status = err;
+                return err; 
+            }
+            dup2(pipetmp[1], 0);
+            close(pipetmp[0]);
+            close(pipetmp[1]);
+
             //run the external program
             if(execvp(input[0], execargs) < 0) {
                 int err = errno;
@@ -1417,11 +1429,21 @@ int main(int argc, char* argv[]) {
                 forkpid = fork();
                 if(forkpid < 0)
                     laststatus = forkpid;
+                else if(forkpid == 0) {
+                    int pipedesc2[2];
+                    if(pipe(pipedesc2) < 0) {
+                    }
+                    dup2(pipedesc2[1], 0);
+                    close(pipedesc2[0]);
+                    close(pipedesc2[1]);
+                }
             }
                                                                         //child
             if(run_background == false || (run_background == true && forkpid == 0)) {
                 //evaluate
                 laststatus = evaluate(n, tokens);
+                if(forkpid == 0)
+                    exit(laststatus);
             } else {
                 laststatus = 0;
             }
