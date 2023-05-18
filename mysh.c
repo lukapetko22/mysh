@@ -466,7 +466,7 @@ int removecom(char* target) {
     return 0;
 }
 
-int cpcatcom(char* src, char* dest) {
+int cpcatcom(char* src, char* dest, char** output) {
     //open the file
     int desk = open(src, O_RDONLY);
     if(desk < 0) {
@@ -503,6 +503,14 @@ int cpcatcom(char* src, char* dest) {
         fflush(stdout);
         free(content);
         return err;  
+    }
+
+    if(dest == NULL) {
+        *output = calloc(size+1, sizeof(char));
+        strcpy(*output, content);
+        (*output)[size] = '\0';
+        free(content);
+        return 0;
     }
 
     //create the dest file
@@ -1008,10 +1016,12 @@ int evaluate(int argc, char** args) {
         return status;
     }
     else if(strcmp(input[0], "cpcat") == 0) {
-        if(inputc < 3)
+        if(inputc < 2)
             return -1;
-        status = cpcatcom(input[1], input[2]);
-        return status;
+        if(inputc == 2)
+            status = cpcatcom(input[1], NULL, &output);
+        else
+            status = cpcatcom(input[1], input[2], &output);
     }
     else if(strcmp(input[0], "sysinfo") == 0) {
         status = sysinfocom(&output);
