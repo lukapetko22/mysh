@@ -25,6 +25,7 @@
 char shellname[100] = { 0 };
 int laststatus = 0;
 char procfspath[1000] = "/proc";
+bool inpipe = false;
 
 #define NUM_OF_BUILTINS 30
 char global_builtins[30][20] = {
@@ -554,6 +555,61 @@ int cpcatcom(char* src, char* dest, char** output) {
     return 0;
 }
 
+int cpcatcompipe(char* src, char* dest, char** output ) {
+    int size = strlen(src);
+
+    char* content = calloc(size+1, sizeof(char));
+    strcpy(content, src);
+
+    if(dest == NULL) {
+        *output = calloc(size+1, sizeof(char));
+        strcpy(*output, content);
+        (*output)[size] = '\0';
+        free(content);
+        return 0;
+    }
+
+    //create the dest file
+    int desk = creat(dest, O_WRONLY);
+    if(desk < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
+        free(content);
+        return err;    
+    }
+
+    //change permissions
+    if(chmod(dest, 0777) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
+        free(content);
+        return err; 
+    }
+
+    //write to it
+    if(write(desk, content, size) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
+        free(content);
+        return err;
+    }
+
+    //close the file
+    if(close(desk) < 0) {
+        int err = errno;
+        printf("cpcat: %s\n", strerror(err));
+        fflush(stdout);
+        free(content);
+        return err;  
+    }
+
+    free(content);
+    return 0;
+}
+
 //////////////////////////////////////////////
 //    Vgrajeni ukazi za info o sys          //
 //////////////////////////////////////////////
@@ -1016,6 +1072,15 @@ int evaluate(int argc, char** args) {
         return status;
     }
     else if(strcmp(input[0], "cpcat") == 0) {
+        if(inpipe == true) {
+            //check if the file exists
+            int desk = open(input[1], O_RDONLY);
+            if(desk < 0) {
+                status = cpcatcompipe(input[1], NULL, &output);
+                goto END;
+            }
+        }
+
         if(inputc < 2)
             return -1;
         if(inputc == 2)
@@ -1112,7 +1177,9 @@ int evaluate(int argc, char** args) {
                 dup2(pipedesc[1], 1);
 
                 //evaluate the command
+                inpipe = true;
                 status = evaluate(pipeinputc, pipeinput);
+                inpipe = false;
                 printf("\n");
                 fflush(stdout);
 
