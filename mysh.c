@@ -1073,10 +1073,28 @@ int evaluate(int argc, char** args) {
     }
     else if(strcmp(input[0], "cpcat") == 0) {
         if(inpipe == true) {
+            if (strcmp(input[1], "-") == 0) {
+                status = cpcatcompipe(input[3], input[2], &output);
+                goto END;
+            }
+            else {
+                //check if the file exists
+                int desk = open(input[1], O_RDONLY);
+                if(desk < 0) {
+                    status = cpcatcompipe(input[1], NULL, &output);
+                    goto END;
+                }
+            }
+        }
+        
+        if(redirected_in == true) {
             //check if the file exists
             int desk = open(input[1], O_RDONLY);
             if(desk < 0) {
-                status = cpcatcompipe(input[1], NULL, &output);
+                output = calloc(strlen(input[1])+2, sizeof(char));
+                strcpy(output, input[1]);
+                if(output[strlen(output)-1] != '\n')
+                    strcat(output, "\n");
                 goto END;
             }
         }
@@ -1299,6 +1317,44 @@ int evaluate(int argc, char** args) {
     }
     //external program
     else {
+        if(!isBuiltin(input[0]) && redirected_in == true) {
+            //simulate pipes
+            char** pipeargs = malloc(3*sizeof(char*));
+            pipeargs[0] = calloc(6, sizeof(char));
+            strcpy(pipeargs[0], "pipes");
+
+            pipeargs[1] = calloc(strlen(inpath)+7, sizeof(char));
+            strcat(pipeargs[1], "cpcat ");
+            strcat(pipeargs[1], inpath);
+
+            int allargslen = 0;
+            for(int i = 0; i < inputc-1; i++)
+                allargslen += strlen(input[i]);
+            allargslen += inputc-2;
+
+            pipeargs[2] = calloc(allargslen+1, sizeof(char));
+            for(int i = 0; i < inputc-1; i++) {
+                if(i > 0)
+                    strcat(pipeargs[2], " ");
+                strcat(pipeargs[2], input[i]);
+            }
+
+            //piping
+            int original_stdout = dup(1);
+            dup2(outdesc, 1);
+
+            status = evaluate(3, pipeargs);
+
+            dup2(original_stdout, 1);
+
+            for(int i = 0; i < 3; i++) {
+                free(pipeargs[i]);
+            }
+            free(pipeargs);
+
+            goto END;
+        }
+
         int forkpid = fork();
         if(forkpid < 0)
             return forkpid;
