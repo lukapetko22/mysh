@@ -18,17 +18,23 @@
 #define MAX_NUMBER_OF_ARGS 1000
 #define MAX_LEN_OF_ARG 100
 #define MAX_PIPE_OUTPUT 10000
+#define MAX_TRAPS 100
+#define MAX_TRAP_COMM_LENGTH 100
 
 /*
     Global vars...
 */
+int globaltrapcount = 0;
+int* globaltrapids;
+char** globaltraps;
+
 char shellname[100] = { 0 };
 int laststatus = 0;
 char procfspath[1000] = "/proc";
 bool inpipe = false;
 
-#define NUM_OF_BUILTINS 30
-char global_builtins[30][20] = {
+#define NUM_OF_BUILTINS 31
+char global_builtins[31][20] = {
     "help",
     "status",
     "exit",
@@ -58,7 +64,8 @@ char global_builtins[30][20] = {
     "pinfo",
     "waitone",
     "waitall",
-    "pipes"
+    "pipes",
+    "trap"
 };
 
 
@@ -146,6 +153,13 @@ int split(char* input, char*** output) {
     Clears all zombie processes
 */
 void clearZombies() {
+    while(1) {
+        int out = waitpid(-1, NULL, WNOHANG);
+        if(out <= 0)
+            return;
+    }
+}
+void clearZombiessig(int signum) {
     while(1) {
         int out = waitpid(-1, NULL, WNOHANG);
         if(out <= 0)
@@ -879,6 +893,136 @@ int waitallcom() {
     return 0;
 }
 
+//////////////////////////////////////////////
+//    Vgrajeni ukazi za delo s traps        //
+//////////////////////////////////////////////
+
+int evaluate(int argc, char** args);
+
+void traphandler(int signum) {
+    char* command = NULL;
+    for(int i = 0; i < globaltrapcount; i++) {
+        if(globaltrapids[i] == signum)
+            command = globaltraps[i];
+    }
+
+    if(command == NULL)
+        return;
+
+    char** tokens;
+    int n = split(command, &tokens);
+    if(tokens[0][0] == '#' || strcmp(tokens[0], "\n") == 0) {
+        return; 
+    }
+
+    //check if it should be run in the background
+    bool run_background = false;
+    int forkpid = -1;
+    if(strcmp(tokens[n-1], "&") == 0) {
+        run_background = true;
+        n--;
+        forkpid = fork();
+        if(forkpid < 0)
+            laststatus = forkpid;
+    }
+                                                                //child
+    if(run_background == false || (run_background == true && forkpid == 0)) {
+        //evaluate
+        laststatus = evaluate(n, tokens);
+    } else {
+        laststatus = 0;
+    }
+    
+    //free up tokens mem
+    for(int i = 0; i < n; i++) {
+        free(tokens[i]);
+    }
+    free(tokens);
+
+    //child ran in the background
+    if(run_background == true && forkpid == 0)
+        exit(laststatus);
+}
+
+int printtrapscom(char** output) {
+    if(globaltrapcount == 0)
+        return 0;
+    
+    char* tmpoutput = calloc(MAX_TRAPS*MAX_TRAP_COMM_LENGTH, sizeof(char));
+    for(int i = 0; i < globaltrapcount; i++) {
+        char line[200];
+        sprintf(line, "%d: %s", globaltrapids[i], globaltraps[i]);
+        if(i > 0)
+            strcat(tmpoutput, "\n");
+        strcat(tmpoutput, line);
+    }
+    strcat(tmpoutput, "\n");
+
+    *output = calloc(strlen(tmpoutput) + 1, sizeof(char));
+    strcpy(*output, tmpoutput);
+    free(tmpoutput);
+
+    return 0;
+}
+
+int deltrapcom(char* strtrapid) {
+    int trapid = atoi(strtrapid);
+    signal(trapid, SIG_DFL);
+
+    int index = -1;
+    for(int i = 0; i < globaltrapcount; i++) {
+        if(globaltrapids[i] == trapid) {
+            index = i;
+            break;
+        }
+    }
+    if(index == -1)
+        return -1;
+
+    //create new trap array
+    char** tmptraparr = malloc(MAX_TRAPS*sizeof(char*));
+    for(int i = 0; i < MAX_TRAPS; i++)
+        tmptraparr[i] = calloc(MAX_TRAP_COMM_LENGTH, sizeof(char));
+    
+    int* tmptrapids = calloc(MAX_TRAPS, sizeof(int));
+
+    //go through the old trap array
+    int counter = 0;
+    for(int i = 0; i < globaltrapcount; i++) {
+        if(i != index) {
+            strcpy(tmptraparr[counter], globaltraps[i]);
+            tmptrapids[counter] = globaltrapids[i];
+            counter++;
+        }
+    }
+
+    //free up the old one
+    for(int i = 0; i < MAX_TRAPS; i++) {
+        free(globaltraps[i]);
+    }
+    free(globaltraps);
+    free(globaltrapids);
+
+    //change global vars
+    globaltraps = tmptraparr;
+    globaltrapids = tmptrapids;
+    globaltrapcount = counter;
+
+    return 0;
+}
+
+int addtrapcom(char* strtrapnum, char* command) {
+    int trapnum = atoi(strtrapnum);
+
+    globaltrapids[globaltrapcount] = trapnum;
+    strcpy(globaltraps[globaltrapcount], command);
+
+    globaltrapcount++;
+
+    signal(trapnum, traphandler);
+    return 0;
+}
+
 
 int evaluate(int argc, char** args) {
     char* output = NULL; char** input; int inputc = 0; int status; int indesc; int outdesc;
@@ -1315,6 +1459,16 @@ int evaluate(int argc, char** args) {
         strcpy(output, nextcmdinput);
         free(nextcmdinput);
     }
+    else if(strcmp(input[0], "trap") == 0) {
+        if(inputc == 1)
+            status = printtrapscom(&output);
+        else if(inputc == 2) {
+            status = deltrapcom(input[1]);
+            printtrapscom(&output);
+        }
+        else if(inputc == 3)
+            status = addtrapcom(input[1], input[2]);
+    }
     //external program
     else {
         if(!isBuiltin(input[0]) && redirected_in == true) {
@@ -1434,6 +1588,14 @@ void rmcomments(char* in) {
 }
 
 int main(int argc, char* argv[]) {
+    signal(SIGCHLD, clearZombiessig);
+
+    //create traps array
+    globaltraps = malloc(MAX_TRAPS * sizeof(char*));
+    globaltrapids = malloc(MAX_TRAPS * sizeof(int));
+    for(int i = 0; i < MAX_TRAPS; i++)
+        globaltraps[i] = calloc(MAX_TRAP_COMM_LENGTH, sizeof(char));
+
     strcpy(shellname, "mysh");
 
     //interactive and non-interactive
